@@ -6,12 +6,13 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddControllersWithViews();
 
+// เปลี่ยนมาใช้ SQLite เพื่อสร้างไฟล์ฐานข้อมูลอัตโนมัติบน Render
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlite("Data Source=lostandfound.db"));
 
 var app = builder.Build();
 
-// ครอบ try-catch ตอนจัดการ Database Startup เพื่อไม่ให้เว็บล่มบน Cloud
+// สั่งสร้างตารางและ Database อัตโนมัติตอนรันแอป
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
@@ -22,8 +23,7 @@ using (var scope = app.Services.CreateScope())
     }
     catch (Exception ex)
     {
-        // ข้าม Error กรณีต่อ SQL Server บน Cloud ไม่ได้
-        Console.WriteLine($"Database connection failed: {ex.Message}");
+        Console.WriteLine($"Database Creation Error: {ex.Message}");
     }
 }
 
@@ -40,6 +40,7 @@ app.UseRouting();
 
 app.UseAuthorization();
 
+// ตั้งค่า default route ให้เปิดมาเจอหน้าระบบ LostAndFound (Item)
 app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Item}/{action=Index}/{id?}");
