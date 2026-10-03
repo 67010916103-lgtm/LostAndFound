@@ -17,24 +17,39 @@ namespace LostAndFound.Controllers
 
         public async Task<IActionResult> Index(string searchString, ItemType? type)
         {
-            var items = _context.Items.Include(i => i.Category).AsQueryable();
-
-            if (!string.IsNullOrEmpty(searchString))
+            try
             {
-                items = items.Where(s => s.Title.Contains(searchString) || s.Location.Contains(searchString));
-            }
+                var items = _context.Items.Include(i => i.Category).AsQueryable();
 
-            if (type.HasValue)
+                if (!string.IsNullOrEmpty(searchString))
+                {
+                    items = items.Where(s => s.Title.Contains(searchString) || s.Location.Contains(searchString));
+                }
+
+                if (type.HasValue)
+                {
+                    items = items.Where(s => s.Type == type.Value);
+                }
+
+                return View(await items.OrderByDescending(i => i.CreatedAt).ToListAsync());
+            }
+            catch
             {
-                items = items.Where(s => s.Type == type.Value);
+                // หากต่อ Database บน Cloud ไม่ได้ ให้ส่ง List ว่างกลับไปแทนเพื่อให้หน้าเว็บรันติด ไม่แสดง Error 500
+                return View(new List<Item>());
             }
-
-            return View(await items.OrderByDescending(i => i.CreatedAt).ToListAsync());
         }
 
         public IActionResult Create()
         {
-            ViewBag.CategoryId = new SelectList(_context.Categories, "Id", "Name");
+            try
+            {
+                ViewBag.CategoryId = new SelectList(_context.Categories, "Id", "Name");
+            }
+            catch
+            {
+                ViewBag.CategoryId = new SelectList(Enumerable.Empty<SelectListItem>());
+            }
             return View();
         }
 
@@ -44,31 +59,46 @@ namespace LostAndFound.Controllers
         {
             if (ModelState.IsValid)
             {
-                if (imageFile != null && imageFile.Length > 0)
+                try
                 {
-                    string uploadDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot/uploads");
-                    if (!Directory.Exists(uploadDir))
+                    if (imageFile != null && imageFile.Length > 0)
                     {
-                        Directory.CreateDirectory(uploadDir);
+                        string uploadDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot/uploads");
+                        if (!Directory.Exists(uploadDir))
+                        {
+                            Directory.CreateDirectory(uploadDir);
+                        }
+
+                        string fileName = Guid.NewGuid().ToString() + Path.GetExtension(imageFile.FileName);
+                        string filePath = Path.Combine(uploadDir, fileName);
+
+                        using (var stream = new FileStream(filePath, FileMode.Create))
+                        {
+                            await imageFile.CopyToAsync(stream);
+                        }
+                        item.ImageUrl = "/uploads/" + fileName;
                     }
 
-                    string fileName = Guid.NewGuid().ToString() + Path.GetExtension(imageFile.FileName);
-                    string filePath = Path.Combine(uploadDir, fileName);
-
-                    using (var stream = new FileStream(filePath, FileMode.Create))
-                    {
-                        await imageFile.CopyToAsync(stream);
-                    }
-                    item.ImageUrl = "/uploads/" + fileName;
+                    item.CreatedAt = DateTime.Now;
+                    _context.Add(item);
+                    await _context.SaveChangesAsync();
+                    return RedirectToAction(nameof(Index));
                 }
-
-                item.CreatedAt = DateTime.Now;
-                _context.Add(item);
-                await _context.SaveChangesAsync();
-                return RedirectToAction(nameof(Index));
+                catch
+                {
+                    ModelState.AddModelError("", "ไม่สามารถบันทึกข้อมูลได้เนื่องจากไม่ได้เชื่อมต่อ Database");
+                }
             }
 
-            ViewBag.CategoryId = new SelectList(_context.Categories, "Id", "Name", item.CategoryId);
+            try
+            {
+                ViewBag.CategoryId = new SelectList(_context.Categories, "Id", "Name", item.CategoryId);
+            }
+            catch
+            {
+                ViewBag.CategoryId = new SelectList(Enumerable.Empty<SelectListItem>());
+            }
+
             return View(item);
         }
 
@@ -76,21 +106,29 @@ namespace LostAndFound.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Delete(int id)
         {
-            var item = await _context.Items.FindAsync(id);
-            if (item != null)
+            try
             {
-                if (!string.IsNullOrEmpty(item.ImageUrl))
+                var item = await _context.Items.FindAsync(id);
+                if (item != null)
                 {
-                    var imagePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", item.ImageUrl.TrimStart('/'));
-                    if (System.IO.File.Exists(imagePath))
+                    if (!string.IsNullOrEmpty(item.ImageUrl))
                     {
-                        System.IO.File.Delete(imagePath);
+                        var imagePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", item.ImageUrl.TrimStart('/'));
+                        if (System.IO.File.Exists(imagePath))
+                        {
+                            System.IO.File.Delete(imagePath);
+                        }
                     }
-                }
 
-                _context.Items.Remove(item);
-                await _context.SaveChangesAsync();
+                    _context.Items.Remove(item);
+                    await _context.SaveChangesAsync();
+                }
             }
+            catch
+            {
+                // ดักจับ Error ตอนลบข้อมูล
+            }
+
             return RedirectToAction(nameof(Index));
         }
     }
